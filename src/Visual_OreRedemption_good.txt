@@ -1,0 +1,147 @@
+#include "VisionFeatureExtractor.cpp"
+// Includes common necessary includes for development using depthai library
+#define DEBUG
+
+
+int main() 
+{
+    VisionFeatureExtractor Vfe;
+    dai::RawToFConfig rawToFConfig;
+    dai::SpatialLocationCalculatorConfigData config;
+    config.depthThresholds.lowerThreshold = 50;
+    config.depthThresholds.upperThreshold = 2000;
+    config.roi = dai::Rect(dai::Point2f(1, 1), dai::Point2f(2, 2));
+    config.calculationAlgorithm = dai::SpatialLocationCalculatorAlgorithm::MEDIAN;
+    Point MiddlePoint = Point(0,0);
+    dai::Pipeline pipeline;
+    const float FPS =16.0;//最高16幀
+    const dai::CameraBoardSocket TOF_SOCKET = dai::CameraBoardSocket::CAM_A;
+    const dai::CameraBoardSocket RGB_SOCKET = dai::CameraBoardSocket::CAM_C;
+    std::vector<dai::SpatialLocationCalculatorData> depth_datas;
+
+    // Define source and output
+    auto camRgb = pipeline.create<dai::node::ColorCamera>();
+    auto xoutVideo = pipeline.create<dai::node::XLinkOut>();
+    auto xoutDepth = pipeline.create<dai::node::XLinkOut>();
+    auto tof = pipeline.create<dai::node::ToF>();
+    auto xinTofConfig = pipeline.create<dai::node::XLinkIn>();
+    auto cam_tof = pipeline.create<dai::node::Camera>();
+    auto spatialLocationCalculator = pipeline.create<dai::node::SpatialLocationCalculator>();
+    auto xoutSpatialData = pipeline.create<dai::node::XLinkOut>();
+    auto xinSpatialCalcConfig = pipeline.create<dai::node::XLinkIn>();
+
+    tof->initialConfig.set(rawToFConfig);
+    xoutVideo->setStreamName("video");
+    xoutDepth->setStreamName("depth");
+    xinTofConfig->setStreamName("tofConfig");
+    xoutSpatialData->setStreamName("spatialData");
+    xinSpatialCalcConfig->setStreamName("spatialCalcConfig");
+    
+    // Properties
+    camRgb->setBoardSocket(RGB_SOCKET);
+    camRgb->setResolution(dai::ColorCameraProperties::SensorResolution::THE_800_P);
+    camRgb->setFps(FPS);
+    cam_tof->setFps(FPS);
+    cam_tof->setBoardSocket(TOF_SOCKET);
+    cam_tof->raw.link(tof->input);
+    //tof->depth.link(spatialLocationCalculator->inputDepth);
+
+    spatialLocationCalculator->inputConfig.setWaitForMessage(false);
+    spatialLocationCalculator->initialConfig.addROI(config);
+
+    // Linking
+    camRgb->isp.link(xoutVideo->input);
+    tof->depth.link(xoutDepth->input);
+    spatialLocationCalculator->out.link(xoutSpatialData->input);
+    xinSpatialCalcConfig->out.link(spatialLocationCalculator->inputConfig);
+    // Connect to device and start pipeline 
+    dai::Device device(pipeline);
+
+
+    auto video = device.getOutputQueue("video");
+    auto depth = device.getOutputQueue("depth", 4, false);
+    //auto spatialCalcQueue = device.getOutputQueue("spatialData", 4, false);
+    //auto spatialData = spatialCalcQueue->get<dai::SpatialLocationCalculatorData>()->getSpatialLocations();
+    //auto spatial_calc_config_in_queue = device.getInputQueue("spatialCalcConfig");
+    //auto spatial_data_queue = device.getOutputQueue("spatial_data");
+
+    while(true) 
+    { 
+        auto videoIn = video->get<dai::ImgFrame>();
+        auto frame = video->get<dai::ImgFrame>()->getCvFrame();
+        auto Pvideo = Vfe.preprocessImage(frame);
+        auto depthFrame = depth->get<dai::ImgFrame>();
+        auto FirstContours = Vfe.FirstSelectContours(Pvideo);
+        auto Contours = Vfe.SecondSelectContours(FirstContours);
+        cout<<"Contours.size():"<<Contours.size()<<endl;   
+
+        if(Contours.size()==4)
+        {
+            vector<dai::Rect> rois;
+            MiddlePoint = Vfe.calculateMidpoint(Contours);
+            cout<<"Center:("<<MiddlePoint.x<<","<<MiddlePoint.y<<")"<<endl;
+            vector<Point> cornerVertices = Vfe.FindCaseLocation(Contours);
+            for(auto& point : cornerVertices)
+            {
+                rois.push_back(dai::Rect(dai::Point2f(point.x - 1, point.y - 1), dai::Point2f(point.x + 1, point.y + 1)));
+            }
+            /*
+            for(auto& roi : rois)
+            {
+                dai::SpatialLocationCalculatorConfigData config;
+                config.depthThresholds.lowerThreshold = 150;
+                config.depthThresholds.upperThreshold = 2000;
+                config.roi = roi;
+                spatialLocationCalculator->initialConfig.addROI(config);
+            }*/
+            if(depthFrame)
+            {
+                auto depthData = depthFrame->getData();
+                int width = depthFrame->getWidth();
+                int height = depthFrame->getHeight();
+
+                for(const auto& point : cornerVertices)
+                {
+                    if(point.x < width && point.y < height) 
+                    {
+                        int index = point.y * width + point.x;
+                        float distance = depthData[index] * 0.001; // Convert mm to meters
+                        std::cout << "Distance at (" << point.x << ", " << point.y << "): " << distance << " meters" << std::endl;
+                    }
+                }
+                /*for(auto depthData : spatialData) 
+                {
+                    auto roi = depthData.config.roi;
+                    roi = roi.denormalize(Pvideo.cols, Pvideo.rows);
+
+                    auto xmin = static_cast<int>(roi.topLeft().x);
+                    auto ymin = static_cast<int>(roi.topLeft().y);
+                    auto xmax = static_cast<int>(roi.bottomRight().x);
+                    auto ymax = static_cast<int>(roi.bottomRight().y);
+                    auto coords = depthData.spatialCoordinates;
+                    auto distance = std::sqrt(coords.x * coords.x + coords.y * coords.y + coords.z * coords.z);
+                    cout<<"distance:"<<distance<<endl;
+                    //std::stringstream depthDistance;
+                    //depthDistance.precision(2);
+                    //depthDistance << fixed << static_cast<float>(distance / 1000.0f) << "m";
+                    
+                }*/
+        }
+    }
+#ifdef DEBUG
+        for (const auto& contour : Contours) 
+        {
+            drawContours(frame, vector<vector<Point>>{contour}, -1, Scalar(0, 0, 0), 3);
+        }
+        if(Contours.size())
+            circle(frame,Point(MiddlePoint.x,MiddlePoint.y),5,Scalar(255, 0, 0), -1);
+        cv::imshow("frame", frame);
+        //cv::imshow("Pvideo",Pvideo);
+        int key = cv::waitKey(1);
+        if(key == 'q' || key == 'Q') {
+            return 0;
+        }
+#endif
+    }
+    return 0;
+}

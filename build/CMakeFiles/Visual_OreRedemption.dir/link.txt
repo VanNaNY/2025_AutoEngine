@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/Visual_OreRedemption.dir/src/Serial.cpp.o CMakeFiles/Visual_OreRedemption.dir/src/VisionFeatureExtractor.cpp.o CMakeFiles/Visual_OreRedemption.dir/src/Visual_OreRedemption.cpp.o -o bin/Visual_OreRedemption  -Wl,-rpath,/usr/local/lib /usr/local/lib/libdepthai-core.so 
