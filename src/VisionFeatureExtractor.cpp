@@ -247,8 +247,9 @@ vector<Point> VisionFeatureExtractor::FindCaseLocation(const vector<vector<Point
 {
     Point midpoint = calculateMidpoint(contours);
     vector<Point> cornerVertices(4);
+    
     for (size_t i = 0; i < contours.size(); ++i) {
-        // 将轮廓点转换为 Point2f 类型，因为 minEnclosingTriangle 需要 Point2f 类型
+        // 将轮廓点转换为 Point2f 类型
         vector<Point2f> contourPoints;
         for (const auto& point : contours[i]) {
             contourPoints.push_back(point);
@@ -256,49 +257,25 @@ vector<Point> VisionFeatureExtractor::FindCaseLocation(const vector<vector<Point
         vector<Point2f> triangle;
         minEnclosingTriangle(contourPoints, triangle);
 
-        // 寻找三角形中最大角（大于 130 度）的顶点
-        double maxAngle = 0;
-        Point maxAngleVertex;
-        double angle1 = acos((distance(triangle[1], triangle[0]) * distance(triangle[1], triangle[0]) +
-                              distance(triangle[2], triangle[0]) * distance(triangle[2], triangle[0]) -
-                              distance(triangle[2], triangle[1]) * distance(triangle[2], triangle[1])) /
-                             (2 * distance(triangle[1], triangle[0]) * distance(triangle[2], triangle[0])));
-        double angle2 = acos((distance(triangle[0], triangle[1]) * distance(triangle[0], triangle[1]) +
-                              distance(triangle[2], triangle[1]) * distance(triangle[2], triangle[1]) -
-                              distance(triangle[2], triangle[0]) * distance(triangle[2], triangle[0])) /
-                             (2 * distance(triangle[0], triangle[1]) * distance(triangle[2], triangle[1])));
-        double angle3 = acos((distance(triangle[0], triangle[2]) * distance(triangle[0], triangle[2]) +
-                              distance(triangle[1], triangle[2]) * distance(triangle[1], triangle[2]) -
-                              distance(triangle[1], triangle[0]) * distance(triangle[1], triangle[0])) /
-                             (2 * distance(triangle[0], triangle[2]) * distance(triangle[1], triangle[2])));
-        angle1 = angle1 * 180 / CV_PI;
-        angle2 = angle2 * 180 / CV_PI;
-        angle3 = angle3 * 180 / CV_PI;
-
-        double currentMaxAngle = max(angle1, max(angle2, angle3));
-        if (currentMaxAngle > 130) {
-            if (angle1 == currentMaxAngle) {
-                maxAngleVertex = triangle[0];
-            } else if (angle2 == currentMaxAngle) {
-                maxAngleVertex = triangle[1];
-            } else {
-                maxAngleVertex = triangle[2];
+        // 计算三角形重心作为角点
+        Point2f centroid;
+        centroid.x = (triangle[0].x + triangle[1].x + triangle[2].x) / 3.0f;
+        centroid.y = (triangle[0].y + triangle[1].y + triangle[2].y) / 3.0f;
+        
+        // 在原始轮廓点中找到最接近重心的点
+        Point nearestPoint;
+        double minDist = DBL_MAX;
+        for(const Point& pt : contours[i]) {
+            double dist = norm(Point2f(pt) - centroid);
+            if(dist < minDist) {
+                minDist = dist;
+                nearestPoint = pt;
             }
-            cornerVertices[i] = maxAngleVertex;
-        } else {
-            // 若无大于 130 度的角，则选择距离中点最远的顶点
-            double maxDistance = 0;
-            Point farthestVertex;
-            for (const auto& vertex : triangle) {
-                double dist = distance(vertex, midpoint);
-                if (dist > maxDistance) {
-                    maxDistance = dist;
-                    farthestVertex = vertex;
-                }
-            }
-            cornerVertices[i] = farthestVertex;
         }
+        
+        cornerVertices[i] = nearestPoint;
     }
+    
     // 利用辅助函数根据小方块检测结果重新排列角点，使得0号角点为"右上小角点"
     vector<Point> orderedCorners = reorderCaseCorners(cornerVertices, mask, contours);
     return orderedCorners;
