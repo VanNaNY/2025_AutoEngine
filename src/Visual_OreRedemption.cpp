@@ -7,6 +7,7 @@ int main()
 {
     using namespace TRoMaC;
     VisionFeatureExtractor Vfe;
+    dai::CameraControl ctrl;
     dai::RawToFConfig rawToFConfig;
     Point MiddlePoint = Point(0,0);
     std::vector<double> angles;
@@ -31,14 +32,17 @@ int main()
     auto spatialLocationCalculator = pipeline.create<dai::node::SpatialLocationCalculator>();
     auto xoutSpatialData = pipeline.create<dai::node::XLinkOut>();
     auto xinSpatialCalcConfig = pipeline.create<dai::node::XLinkIn>();
+    auto controlIn = pipeline.create<dai::node::XLinkIn>();
 
     tof->initialConfig.set(rawToFConfig);
+    controlIn->setStreamName("control");
     xoutVideo->setStreamName("video");
     xoutDepth->setStreamName("depth");
     xinTofConfig->setStreamName("tofConfig");
     xoutSpatialData->setStreamName("spatialData");
     xinSpatialCalcConfig->setStreamName("spatialCalcConfig");
     
+    /*
     if (serial -> Open(1, 115200))
     {
         std::cout << "Open the serial successfully" << std::endl;
@@ -53,20 +57,16 @@ int main()
         perror("execv failed");
         exit(EXIT_FAILURE);
     }
-
-
-    for(int i = 0; i < 1; i++) {
-        dai::SpatialLocationCalculatorConfigData config;
-        config.depthThresholds.lowerThreshold = 200;
-        config.depthThresholds.upperThreshold = 10000;
-        config.roi = dai::Rect(dai::Point2f(i * 0.1, 0.45), dai::Point2f((i + 1) * 0.1, 0.55));
-        config.calculationAlgorithm = dai::SpatialLocationCalculatorAlgorithm::AVERAGE;
-        spatialLocationCalculator->initialConfig.addROI(config);
-    }
+    */
+   
+    dai::SpatialLocationCalculatorConfigData config;
+    spatialLocationCalculator->initialConfig.addROI(config);
+    
     // Properties
     camRgb->setBoardSocket(RGB_SOCKET);
     camRgb->setResolution(dai::ColorCameraProperties::SensorResolution::THE_800_P);
     camRgb->setColorOrder(dai::ColorCameraProperties::ColorOrder::RGB);
+    camRgb->initialControl.setManualExposure(0, 0);
     camRgb->setFps(FPS);
     cam_tof->setFps(FPS);
     cam_tof->setBoardSocket(dai::CameraBoardSocket::CAM_A);
@@ -76,6 +76,7 @@ int main()
     spatialLocationCalculator->inputDepth.setQueueSize(8);
 
     // Linking
+    controlIn->out.link(camRgb->inputControl);
     cam_tof->raw.link(tof->input);
     tof->depth.link(xoutDepth->input);
     camRgb->isp.link(xoutVideo->input);
@@ -85,11 +86,14 @@ int main()
     // Connect to device and start pipeline 
     dai::Device device(pipeline);
 
-
-    auto video = device.getOutputQueue("video", 4, false);
-    auto depth = device.getOutputQueue("depth", 4, false);
-    auto spatialQueue = device.getOutputQueue("spatialData", 4, false);
+    auto controlQueue = device.getInputQueue("control");
+    auto video = device.getOutputQueue("video", 8, false);
+    auto depth = device.getOutputQueue("depth", 8, false);
+    auto spatialQueue = device.getOutputQueue("spatialData", 8, false);
     auto spatialCalcConfigQueue = device.getInputQueue("spatialCalcConfig");
+
+    ctrl.setManualExposure(200, 100);
+    controlQueue->send(ctrl);
 
     while(true) 
     { 
@@ -139,7 +143,7 @@ int main()
         {
             vector<dai::Rect> rois;
             std::vector<dai::Point3f> points3f;
-            auto color = cv::Scalar(0, 200, 40);
+            auto color = cv::Scalar(0, 255, 0);
             auto fontType = cv::FONT_HERSHEY_TRIPLEX;
             MiddlePoint = Vfe.calculateMidpoint(Contours);
             cout<<"Center:("<<MiddlePoint.x<<","<<MiddlePoint.y<<")"<<endl;
@@ -178,8 +182,8 @@ int main()
                 auto ymax = static_cast<int>(roi.bottomRight().y);
 
                 auto coords = depthData.spatialCoordinates;
-                auto distance = std::sqrt(coords.x * coords.x + coords.y * coords.y + coords.z * coords.z);
-                //auto distance = coords.z;
+                //auto distance = std::sqrt(coords.x * coords.x + coords.y * coords.y + coords.z * coords.z);
+                auto distance = coords.z;                    
                 points3f.push_back(dai::Point3f(roi.topLeft().x,roi.topLeft().y, distance));
                 MiddleDepth += distance;
                 cv::rectangle(frame, cv::Rect(cv::Point(xmin, ymin), cv::Point(xmax, ymax)), color);
@@ -189,13 +193,19 @@ int main()
                 cv::putText(frame, depthDistance.str(), cv::Point(xmin + 10, ymin + 20), fontType, 0.5, color);
             }
             MiddleDepth /= 4;
-            for (const auto& point : points3f) {
-                cout << "中心顶点坐标: (" << MiddlePoint.x << ", " << MiddlePoint.y << ", "<< MiddleDepth <<" mm"<<")" << endl;
+            if (!points3f.empty()) {
+                cout << "中心顶点坐标: (" << MiddlePoint.x << ", " << MiddlePoint.y << ", " << MiddleDepth << " mm)" << endl;
             }
+            /*
             angles = Vfe.calculatePlaneAxisAngles(points3f[0],points3f[1],points3f[2]);
             std::cout << "平面与 x 轴的夹角: " << angles[0] << " 度" << std::endl;
             std::cout << "平面与 y 轴的夹角: " << angles[1] << " 度" << std::endl;
             std::cout << "平面与 z 轴的夹角: " << angles[2] << " 度" << std::endl;
+            */
+            dai::Point3f XdirectionVector = Vfe.calculateDirectionVector(points3f[0], points3f[1]);
+            dai::Point3f YdirectionVector = Vfe.calculateDirectionVector(points3f[0], points3f[3]);
+            cout<<"XdirectionVector:("<<XdirectionVector.x <<","<<XdirectionVector.y<<","<<XdirectionVector.z<<")"<<endl;
+            cout<<"YdirectionVector:("<<YdirectionVector.x <<","<<YdirectionVector.y<<","<<YdirectionVector.z<<")"<<endl;
         }
         if(!angles.empty())
         {
@@ -211,17 +221,24 @@ int main()
 #ifdef DEBUG
         for (const auto& contour : Contours) 
         {
-            drawContours(frame, vector<vector<Point>>{contour}, -1, Scalar(0, 0, 0), 3);
+            drawContours(frame, vector<vector<Point>>{contour}, -1, Scalar(255, 255, 255), 3);
         }
         if(Contours.size())
         {
-            circle(frame,Point(MiddlePoint.x,MiddlePoint.y),5,Scalar(255, 0, 0), -1);
+            circle(frame,Point(MiddlePoint.x,MiddlePoint.y),5,Scalar(255, 255, 255), -1);
         }
         if(cornerVertices.size())
         {
-            for(const auto& point : cornerVertices)
+            for(int i = 0; i < cornerVertices.size(); i++)
             {
-                circle(frame,Point(point.x, point.y),5,Scalar(0,255,0),-1);
+                if(i == 0)
+                {
+                    circle(frame,Point(cornerVertices[i].x, cornerVertices[i].y),5,Scalar(0,255,0),-1);
+                }
+                else
+                {
+                    circle(frame,Point(cornerVertices[i].x, cornerVertices[i].y),5,Scalar(0,0,255),-1);
+                }
             }
         }
         cv::imshow("frame", frame);

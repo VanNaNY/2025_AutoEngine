@@ -14,7 +14,7 @@ class VisionFeatureExtractor
 public:
     cv::Mat preprocessImage(const cv::Mat& rgb_img);
     vector<vector<Point>> FirstSelectContours(const Mat frame);
-    vector<Point> FindCaseLocation(vector<vector<Point>> Contours);
+    vector<Point> FindCaseLocation(const vector<vector<Point>>& Contours, const Mat &mask);
     vector<vector<Point>> SecondSelectContours(const vector<vector<Point>> FirstContours);
     template <typename T>
     void Compare(T a,T b);
@@ -30,6 +30,8 @@ public:
     double magnitude(const dai::Point3f& a);
     std::vector<double> calculatePlaneAxisAngles(const dai::Point3f& p1, const dai::Point3f& p2, const dai::Point3f& p3);
     void SerialControl();
+    dai::Point3f calculateDirectionVector(const dai::Point3f& p1, const dai::Point3f& p2);
+    dai::Point3f MissingPoint(const vector<vector<Point>>& contours);
 };
 
 #endif
