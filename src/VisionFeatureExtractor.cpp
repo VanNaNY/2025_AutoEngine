@@ -79,7 +79,7 @@ cv::Mat VisionFeatureExtractor::preprocessImage(const cv::Mat& rgb_img)
     imshow("result",result);
 
     return combined_mask;
-    
+
 }
 
 
@@ -105,7 +105,7 @@ vector<vector<Point>> VisionFeatureExtractor::FirstSelectContours(const Mat fram
         // 判断宽高比和高宽比小于4.5
         if ((height / width < 4.5) && (width / height < 4.5)) {
             // 判断轮廓面积大于400小于12000
-            if (area > 1 && area < 5000){
+            if (area > 20 && area < 7000){
                 // 判断多边形拟合边数大于5小于9
                 if (edge > 4 && edge < 9) {
                     screenedContours.push_back(contour);
@@ -121,13 +121,14 @@ vector<vector<Point>> VisionFeatureExtractor::SecondSelectContours(vector<vector
 {
     if (firstContours.size() < 4)
     {
-        return vector<vector<Point>>();
-        //Point3f missing_point = MissingPoint(firstContours);
-    }
+        //return vector<vector<Point>>();
+        return firstContours;
+    }       
     
     else if(firstContours.size() > 4)
     {
-        sort(firstContours.begin(), firstContours.end(), [](const vector<Point>& contour1, const vector<Point>& contour2) {
+        sort(firstContours.begin(), firstContours.end(), [](const vector<Point>& contour1, const vector<Point>& contour2) 
+        {
             double area1 = contourArea(contour1);
             double area2 = contourArea(contour2);
             return area1 > area2;
@@ -159,25 +160,34 @@ vector<vector<Point>> VisionFeatureExtractor::SecondSelectContours(vector<vector
 }
 
 // 辅助函数：在给定窗口内（基于二值掩码）检测小方块，并返回候选小方块的中心点
-static vector<Point> detectSmallSquaresInMask(const Mat &mask, const Rect &win) {
+static vector<Point> detectSmallSquaresInMask(const Mat &mask, const Rect &win) 
+{
     vector<Point> centroids;
     Mat roi = mask(win); // 掩码图已经是二值图，不需要转换
     vector<vector<Point>> cnts;
     findContours(roi, cnts, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
-    for (auto &cnt : cnts) {
+    for (auto &cnt : cnts) 
+    {
         double area = contourArea(cnt);
-        if (area < 50 || area > 200)
+        if (area < 30 || area > 2000)
+        {
             continue;
+        }
         RotatedRect rRect = minAreaRect(cnt);
         double rectArea = rRect.size.width * rRect.size.height;
-        if (rectArea > 1.2 * area)
+        if (rectArea > 1.3 * area)
+        {
             continue;
+        }
         float ratio1 = rRect.size.height / rRect.size.width;
         float ratio2 = rRect.size.width / rRect.size.height;
         if (ratio1 >= 2 || ratio2 >= 2)
+        {
             continue;
+        }
         Moments M = moments(cnt);
-        if (M.m00 != 0) {
+        if (M.m00 != 0)
+        {
             int cx = int(M.m10 / M.m00);
             int cy = int(M.m01 / M.m00);
             centroids.push_back(Point(cx + win.x, cy + win.y));
@@ -186,44 +196,93 @@ static vector<Point> detectSmallSquaresInMask(const Mat &mask, const Rect &win) 
     return centroids;
 }
 
+// 计算点相对于中心的角度
+static float getAngle(const cv::Point& point, const cv::Point2f& center) 
+{
+    float dx = point.x - center.x;
+    float dy = point.y - center.y;
+    return std::atan2(dy, dx);
+}
+
+// 按逆时针排序角点
+std::vector<cv::Point> VisionFeatureExtractor::sortCornersCounterClockwise(const std::vector<cv::Point>& corners, const cv::Point2f& center) 
+{
+    std::vector<std::pair<float, cv::Point>> anglePointPairs;
+    for (const auto& corner : corners) 
+    {
+        float angle = getAngle(corner, center);
+        anglePointPairs.emplace_back(angle, corner);
+    }
+
+    std::sort(anglePointPairs.begin(), anglePointPairs.end(), [](const auto& a, const auto& b) 
+    {
+        return a.first > b.first;
+    });
+
+    std::vector<cv::Point> sortedCorners;
+    for (const auto& pair : anglePointPairs) 
+    {
+        sortedCorners.push_back(pair.second);
+    }
+
+    return sortedCorners;
+}
+
 // 根据角点附近小方块候选，确定哪个角点为0号
-static int findIndexOfCaseCorner0(const vector<Point> &corners, const Mat &mask, const vector<vector<Point>> &contours) {
+static int findIndexOfCaseCorner0(const vector<Point> &corners, const Mat &mask, const vector<vector<Point>> &contours) 
+{
+    vector<Point> centers;
     int bestIndex = -1;
     double bestDist = 1e9;
     bool candidateFound = false;
     int windowSize = 200; // 检测周围小正方形的范围
-    for (int i = 0; i < corners.size(); i++) {
+    for (int i = 0; i < corners.size(); i++) 
+    {
+        centers.clear();
         Point pt = corners[i];
+        cout<< "pt: ("<< pt.x<< ", "<< pt.y<< ")"<< endl;
         int x = max(pt.x - windowSize / 2, 0);
         int y = max(pt.y - windowSize / 2, 0);
         int w = min(windowSize, mask.cols - x);
         int h = min(windowSize, mask.rows - y);
         Rect win(x, y, w, h);
-        vector<Point> centers = detectSmallSquaresInMask(mask, win);
-        if (!centers.empty()) {
+        centers = detectSmallSquaresInMask(mask, win);
+        cout<< "centers.size():"<< centers.size()<< endl;
+        if (!centers.empty()) 
+        {
             int sumx = 0, sumy = 0;
-            for (auto &c : centers) {
+            for (auto &c : centers) 
+            {
                 sumx += c.x;
                 sumy += c.y;
             }
             Point avg(sumx / centers.size(), sumy / centers.size());
+            cout<<" avg: ("<< avg.x<< ","<< avg.y<< ")"<<endl;
             double dist = norm(avg - pt);
-            if (dist < bestDist) {
+            if (dist < bestDist) 
+            {
                 bestDist = dist;
                 bestIndex = i;
                 candidateFound = true;
+                cout<<"YesYesYesYesYesYesYes"<<endl;
             }
         }
     }
-    
-    if (!candidateFound) {
+    for(const auto& center : centers)
+    {
+        circle(mask, center, 20, Scalar(255, 0, 0), -1);
+    }
+    if (!candidateFound) 
+    {
         // 如果没有检测到任何小方块，则选择对应轮廓面积最小的角点（远离相机的角点）
         cout<<"not found small squares!"<<endl;
         double minArea = 1e9;
         int index = 0;
-        for (int i = 0; i < contours.size(); i++) {
+        for (int i = 0; i < contours.size(); i++) 
+        {
             double area = contourArea(contours[i]);
-            if (area < minArea) {
+            if (area < minArea) 
+            {
                 minArea = area;
                 index = i;
             }
@@ -234,24 +293,59 @@ static int findIndexOfCaseCorner0(const vector<Point> &corners, const Mat &mask,
 }
 
 // 重排序，将角点向量旋转使得0号角点位于首位
-static vector<Point> reorderCaseCorners(const vector<Point> &corners, const Mat &mask, const vector<vector<Point>> &contours) {
+static vector<Point> reorderCaseCorners(const vector<Point> &corners, const Mat &mask, const vector<vector<Point>> &contours) 
+{
     int idx0 = findIndexOfCaseCorner0(corners, mask, contours);
     vector<Point> reordered;
-    for (int i = 0; i < corners.size(); i++) {
+    for (int i = 0; i < corners.size(); i++) 
+    {
         reordered.push_back(corners[(i + idx0) % corners.size()]);
     }
     return reordered;
 }
 
+// 新增一个计算对角线交点的函数
+Point VisionFeatureExtractor::calculateIntersection(const vector<Point>& corners) 
+{
+    if(corners.size() != 4) 
+    {
+        return Point(-1, -1);
+    }
+    
+    // 计算两条对角线的参数
+    // 对角线1: corners[0] -> corners[2]
+    // 对角线2: corners[1] -> corners[3]
+    float x1 = corners[0].x, y1 = corners[0].y;  // 第一条对角线起点
+    float x2 = corners[2].x, y2 = corners[2].y;  // 第一条对角线终点
+    float x3 = corners[1].x, y3 = corners[1].y;  // 第二条对角线起点
+    float x4 = corners[3].x, y4 = corners[3].y;  // 第二条对角线终点
+    
+    // 计算交点
+    float denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if(abs(denominator) < 1e-6) 
+    {
+        // 对角线平行或重合
+        return Point((x1 + x2 + x3 + x4) / 4, (y1 + y2 + y3 + y4) / 4);
+    }
+    
+    float px = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denominator;
+    float py = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denominator;
+    
+    return Point(px, py);
+}
+
+// 修改 FindCaseLocation 函数中计算中心点的部分
 vector<Point> VisionFeatureExtractor::FindCaseLocation(const vector<vector<Point>>& contours, const Mat &mask)
 {
     Point midpoint = calculateMidpoint(contours);
     vector<Point> cornerVertices(4);
     
-    for (size_t i = 0; i < contours.size(); ++i) {
+    for (size_t i = 0; i < contours.size(); ++i) 
+    {
         // 将轮廓点转换为 Point2f 类型
         vector<Point2f> contourPoints;
-        for (const auto& point : contours[i]) {
+        for (const auto& point : contours[i]) 
+        {
             contourPoints.push_back(point);
         }
         vector<Point2f> triangle;
@@ -265,9 +359,11 @@ vector<Point> VisionFeatureExtractor::FindCaseLocation(const vector<vector<Point
         // 在原始轮廓点中找到最接近重心的点
         Point nearestPoint;
         double minDist = DBL_MAX;
-        for(const Point& pt : contours[i]) {
+        for(const Point& pt : contours[i]) 
+        {
             double dist = norm(Point2f(pt) - centroid);
-            if(dist < minDist) {
+            if(dist < minDist) 
+            {
                 minDist = dist;
                 nearestPoint = pt;
             }
@@ -279,13 +375,92 @@ vector<Point> VisionFeatureExtractor::FindCaseLocation(const vector<vector<Point
     // 利用辅助函数根据小方块检测结果重新排列角点，使得0号角点为"右上小角点"
     vector<Point> orderedCorners = reorderCaseCorners(cornerVertices, mask, contours);
     return orderedCorners;
+    //return cornerVertices;
 }
-        
 
-Point VisionFeatureExtractor::calculateMidpoint(const vector<vector<Point>>& contours) {
+vector<Point> VisionFeatureExtractor::FindOuterCaseLocation(const vector<vector<Point>>& contours, const Mat &mask)
+{
+    Point midpoint = calculateMidpoint(contours);
+    vector<Point> cornerVertices(4);
+    
+    for (size_t i = 0; i < contours.size(); ++i) 
+    {
+        // 将轮廓点转换为 Point2f 类型，因为 minEnclosingTriangle 需要 Point2f 类型.
+        vector<Point2f> contourPoints;
+        for (const auto& point : contours[i]) 
+        {
+            contourPoints.push_back(point);
+        }
+        vector<Point2f> triangle;
+        minEnclosingTriangle(contourPoints, triangle);
+
+        // 寻找三角形中最大角（大于 130 度）的顶点
+        double maxAngle = 0;
+        Point maxAngleVertex;
+        double angle1 = acos((distance(triangle[1], triangle[0]) * distance(triangle[1], triangle[0]) +
+                              distance(triangle[2], triangle[0]) * distance(triangle[2], triangle[0]) -
+                              distance(triangle[2], triangle[1]) * distance(triangle[2], triangle[1])) /
+                             (2 * distance(triangle[1], triangle[0]) * distance(triangle[2], triangle[0])));
+        double angle2 = acos((distance(triangle[0], triangle[1]) * distance(triangle[0], triangle[1]) +
+                              distance(triangle[2], triangle[1]) * distance(triangle[2], triangle[1]) -
+                              distance(triangle[2], triangle[0]) * distance(triangle[2], triangle[0])) /
+                             (2 * distance(triangle[0], triangle[1]) * distance(triangle[2], triangle[1])));
+        double angle3 = acos((distance(triangle[0], triangle[2]) * distance(triangle[0], triangle[2]) +
+                              distance(triangle[1], triangle[2]) * distance(triangle[1], triangle[2]) -
+                              distance(triangle[1], triangle[0]) * distance(triangle[1], triangle[0])) /
+                             (2 * distance(triangle[0], triangle[2]) * distance(triangle[1], triangle[2])));
+        angle1 = angle1 * 180 / CV_PI;
+        angle2 = angle2 * 180 / CV_PI;
+        angle3 = angle3 * 180 / CV_PI;
+        double currentMaxAngle = max(angle1, max(angle2, angle3));
+        if (currentMaxAngle > 130) 
+        {
+            if (angle1 == currentMaxAngle) 
+            {
+                maxAngleVertex = triangle[0];
+            } 
+            else if (angle2 == currentMaxAngle) 
+            {
+                maxAngleVertex = triangle[1];
+            } 
+            else 
+            {
+                maxAngleVertex = triangle[2];
+            }
+            cornerVertices[i] = maxAngleVertex;
+        } 
+        else 
+        {
+            // 若无大于 130 度的角，则选择距离中点最远的顶点
+            double maxDistance = 0;
+            Point farthestVertex;
+            for (const auto& vertex : triangle) 
+            {
+                double dist = distance(vertex, midpoint);
+                if (dist > maxDistance) 
+                {
+                    maxDistance = dist;
+                    farthestVertex = vertex;
+                }
+        // 计算三角形重心作为角点
+            }
+            cornerVertices[i] = farthestVertex;
+        }
+    }
+    
+    // 利用辅助函数根据小方块检测结果重新排列角点，使得0号角点为"右上小角点"
+    vector<Point> orderedCorners = reorderCaseCorners(cornerVertices, mask, contours);
+    return orderedCorners;
+}
+
+
+Point VisionFeatureExtractor::calculateMidpoint(const vector<vector<Point>>& contours) 
+{
     double sumX = 0;
     double sumY = 0;
-    for (size_t i = 0; i < 4; ++i) {
+    int length = contours.size();
+    for (size_t i = 0; i < length; ++i) 
+    {
         // 计算每个轮廓的最小外接圆
         Point2f center;
         float radius;
@@ -293,11 +468,12 @@ Point VisionFeatureExtractor::calculateMidpoint(const vector<vector<Point>>& con
         sumX += center.x;
         sumY += center.y;
     }
-    return Point(sumX / 4, sumY / 4);
+    return Point(sumX / length, sumY / length);
 }
 
 
-double VisionFeatureExtractor::distance(Point p1, Point p2) {
+double VisionFeatureExtractor::distance(Point p1, Point p2) 
+{
     return sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2));
 }
 
@@ -329,8 +505,8 @@ std::vector<float> VisionFeatureExtractor::calculate_distances(const std::vector
     config.depthThresholds.lowerThreshold = 300;
     config.depthThresholds.upperThreshold = 2000;
 
-    for (const auto& point : points) {
-
+    for (const auto& point : points) 
+    {
         config.roi = dai::Rect(point.x, point.y, 1, 1);
         //config.point = dai::Point2f(point.x, point.y);
         dai::SpatialLocationCalculatorConfig cfg;
@@ -338,10 +514,13 @@ std::vector<float> VisionFeatureExtractor::calculate_distances(const std::vector
 
         spatialCalcConfigInQueue->send(cfg); 
         std::shared_ptr<dai::SpatialLocationCalculatorData> spatialData = spatialDataQueue->get<dai::SpatialLocationCalculatorData>();
-        if (spatialData) {
+        if (spatialData) 
+        {
             auto depthData = spatialData->getSpatialLocations()[0];
             distances.push_back(depthData.spatialCoordinates.z);
-        } else {
+        }
+        else
+        {
             std::cerr << "Failed to get spatial data for point (" << point.x << ", " << point.y << ")" << std::endl;
             distances.push_back(-1.0);
             // 如果获取空间数据失败，输出错误信息并将 -1.0 作为失败标志添加到 distances 向量中。
@@ -391,12 +570,8 @@ double VisionFeatureExtractor::magnitude(const dai::Point3f& a)
 // 计算三个点确定的平面与坐标轴的夹角
 std::vector<double> VisionFeatureExtractor::calculatePlaneAxisAngles(const dai::Point3f& p1, const dai::Point3f& p2, const dai::Point3f& p3) 
 {
-    // 计算向量 AB 和 AC
-    dai::Point3f AB(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
-    dai::Point3f AC(p3.x - p1.x, p3.y - p1.y, p3.z - p1.z);
-
     // 计算平面的法向量
-    dai::Point3f normal = crossProduct(AB, AC);
+    dai::Point3f normal = calculatePlaneNormal(p1, p2, p3);
     double normalMagnitude = magnitude(normal);
 
     // 定义坐标轴单位向量
@@ -422,26 +597,258 @@ std::vector<double> VisionFeatureExtractor::calculatePlaneAxisAngles(const dai::
     return {alpha, beta, gamma};
 }
 
+//计算平面的法向量
+dai::Point3f VisionFeatureExtractor::calculatePlaneNormal(const dai::Point3f& p1, const dai::Point3f& p2, const dai::Point3f& p3) 
+{
+    // 计算向量 AB 和 AC
+    dai::Point3f AB(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
+    dai::Point3f AC(p3.x - p1.x, p3.y - p1.y, p3.z - p1.z);
+    // 计算平面的法向量
+    dai::Point3f normal = crossProduct(AB, AC);
+    return normal;
+}
+
 //计算两个点的方向向量
 dai::Point3f VisionFeatureExtractor::calculateDirectionVector(const dai::Point3f& p1, const dai::Point3f& p2) 
 {
     return dai::Point3f(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
 }
 
-/*
-dai::Point3f VisionFeatureExtractor::MissingPoint(const vector<vector<Point>>& contours)
+Point VisionFeatureExtractor::findFourthCorner(const vector<vector<Point>>& contours, Mat mask)
 {
-    if(contours.size() == 3)
+    Point2f midpoint = calculateMidpoint(contours);
+    vector<Point2f> cornerVertices(3);
+    vector<vector<cv::Point2f>> allTriangles;
+    for (size_t i = 0; i < contours.size(); ++i) 
     {
-        
+        // 将轮廓点转换为 Point2f 类型，因为 minEnclosingTriangle 需要 Point2f 类型
+        vector<Point2f> contourPoints;
+        for (const auto& point : contours[i]) 
+        {
+            contourPoints.push_back(point);
+        }
+        vector<Point2f> triangle;
+        minEnclosingTriangle(contourPoints, triangle);
+        allTriangles.push_back(triangle);
+
+        // 寻找三角形中最大角（大于 130 度）的顶点
+        double maxAngle = 0;
+        Point maxAngleVertex;
+        double angle1 = acos((distance(triangle[1], triangle[0]) * distance(triangle[1], triangle[0]) +
+                              distance(triangle[2], triangle[0]) * distance(triangle[2], triangle[0]) -
+                              distance(triangle[2], triangle[1]) * distance(triangle[2], triangle[1])) /
+                             (2 * distance(triangle[1], triangle[0]) * distance(triangle[2], triangle[0])));
+        double angle2 = acos((distance(triangle[0], triangle[1]) * distance(triangle[0], triangle[1]) +
+                              distance(triangle[2], triangle[1]) * distance(triangle[2], triangle[1]) -
+                              distance(triangle[2], triangle[0]) * distance(triangle[2], triangle[0])) /
+                             (2 * distance(triangle[0], triangle[1]) * distance(triangle[2], triangle[1])));
+        double angle3 = acos((distance(triangle[0], triangle[2]) * distance(triangle[0], triangle[2]) +
+                              distance(triangle[1], triangle[2]) * distance(triangle[1], triangle[2]) -
+                              distance(triangle[1], triangle[0]) * distance(triangle[1], triangle[0])) /
+                             (2 * distance(triangle[0], triangle[2]) * distance(triangle[1], triangle[2])));
+        angle1 = angle1 * 180 / CV_PI;
+        angle2 = angle2 * 180 / CV_PI;
+        angle3 = angle3 * 180 / CV_PI;
+
+        double currentMaxAngle = max(angle1, max(angle2, angle3));
+        if (currentMaxAngle > 130) {
+            if (angle1 == currentMaxAngle) 
+            {
+                maxAngleVertex = triangle[0];
+            } 
+            else if (angle2 == currentMaxAngle) 
+            {
+                maxAngleVertex = triangle[1];
+            } 
+            else 
+            {
+                maxAngleVertex = triangle[2];
+            }
+            cornerVertices[i] = maxAngleVertex;
+        } 
+        else 
+        {
+            // 若无大于 130 度的角，则选择距离中点最远的顶点
+            double maxDistance = 0;
+            Point farthestVertex;
+            for (const auto& vertex : triangle) 
+            {
+                double dist = distance(vertex, midpoint);
+                if (dist > maxDistance) 
+                {
+                    maxDistance = dist;
+                    farthestVertex = vertex;
+                }
+        // 计算三角形重心作为角点
+            }
+            cornerVertices[i] = farthestVertex;
+        }
     }
-    else if(contours.size()==2)
+
+    double maxDist = 0;
+    int index1 = -1, index2 = -1;
+    for (size_t i = 0; i < cornerVertices.size(); ++i) 
     {
-        return vector<vector<Point>>();
+        for (size_t j = i + 1; j < cornerVertices.size(); ++j) 
+        {
+            double dist = distance(cornerVertices[i], cornerVertices[j]);
+            if (dist > maxDist) 
+            {
+                maxDist = dist;
+                index1 = i;
+                index2 = j;
+            }
+        }
     }
-    else if(contours.size()==1)
+
+    vector<Point2f> triangle1 = allTriangles[index1];
+    vector<Point2f> triangle2 = allTriangles[index2];
+
+    vector<Point2f> candidates = findIntersection(triangle1, triangle2, mask);
+    cout<<"candidates.size():"<< candidates.size()<< endl;
+    //return candidates[3];
+    double diffThreshold = 50.0;  // 差值范围，可根据实际情况调整
+    outer_loop:
+    for (const auto& candidate : candidates)
     {
-        return vector<vector<Point>>();
+        bool isValid = true;
+        cout<<"candidates.size():"<<candidates.size()<<endl;
+        for (const auto& point : cornerVertices) 
+        { 
+            cout<<"distance:"<<distance(candidate, point)<<endl;
+            double dist = distance(candidate, point);
+            if (distance(candidate, point) < diffThreshold || distance(candidate, point) > 500) 
+            {
+                isValid = false;
+            }
+        }
+        if( isValid)
+        {
+            return candidate;
+        }
     }
+    return Point(-1, -1);
 }
-*/
+
+//根据直线的一般式方程和图像尺寸计算起点和终点坐标
+void VisionFeatureExtractor::calculateLinePoints(double A, double B, double C, int imgWidth, int imgHeight, Point& pt1, Point& pt2)
+{
+    // 计算直线与图像左边和右边边界的交点
+    pt1.y = -C / B;
+    pt1.x = 0;
+    pt2.y = -(A * imgWidth + C) / B;
+    pt2.x = imgWidth;
+}
+
+// 在图像上绘制直线
+void VisionFeatureExtractor::drawLineOnImage(Mat& img, double A, double B, double C)
+{
+    Point pt1, pt2;
+    calculateLinePoints(A, B, C, img.cols, img.rows, pt1, pt2);
+    line(img, pt1, pt2, Scalar(255, 0, 0), 5);
+}
+
+//找出三角形的两条短边并延长求交点
+vector<Point2f> VisionFeatureExtractor::findIntersection(const std::vector<Point2f>& triangle1, const std::vector<Point2f>& triangle2, Mat frame) 
+{
+    vector<Point2f> intersections;
+    std::vector<double> distances1;
+    distances1.push_back(distance(triangle1[0], triangle1[1]));
+    distances1.push_back(distance(triangle1[1], triangle1[2]));
+    distances1.push_back(distance(triangle1[2], triangle1[0]));
+
+    // 找到最短的两条边的索引
+    std::vector<int> indices1 = {0, 1, 2};
+    std::sort(indices1.begin(), indices1.end(), [&](int i, int j) {
+        return distances1[i] < distances1[j];
+    });
+
+    double A1, B1, C1, A2, B2, C2;
+    lineGeneralForm(triangle1[(indices1[0] + 1) % 3], triangle1[(indices1[0] + 3) % 3], A1, B1, C1);
+    lineGeneralForm(triangle1[(indices1[1] + 1) % 3], triangle1[(indices1[1] + 3) % 3], A2, B2, C2);
+    //drawLineOnImage(frame, A1, B1, C1);
+    //drawLineOnImage(frame, A2, B2, C2);
+
+    // 计算交点
+    Point2f intersection;
+
+    std::vector<double> distances2;
+    distances2.push_back(distance(triangle2[0], triangle2[1]));
+    distances2.push_back(distance(triangle2[1], triangle2[2]));
+    distances2.push_back(distance(triangle2[2], triangle2[0]));
+
+    // 找到最短的两条边的索引
+    std::vector<int> indices2 = {0, 1, 2};
+    std::sort(indices2.begin(), indices2.end(), [&](int i, int j) {
+        return distances2[i] < distances2[j];
+    });
+
+    double a1, b1, c1, a2, b2, c2;
+    lineGeneralForm(triangle2[(indices2[0] + 1) % 3], triangle2[(indices2[0] + 3) % 3], a1, b1, c1);
+    lineGeneralForm(triangle2[(indices2[1] + 1) % 3], triangle2[(indices2[1] + 3) % 3], a2, b2, c2);
+    drawLineOnImage(frame, a1, b1, c1);
+    drawLineOnImage(frame, a2, b2, c2);
+
+    vector<double> linesA = 
+    {
+        A1, B1, C1,
+        A2, B2, C2,
+    };
+    vector<double> linesB =
+    {
+        a1, b1, c1,
+        a2, b2, c2,
+    };
+
+    for (int i = 0; i < 2; ++i) 
+    {
+        for (int j = 0; j < 2; ++j) 
+        {
+            Point2f intersection;
+            int indexA = i * 3;
+            int indexB = j * 3;
+            if (lineIntersect(linesA[indexA], linesA[indexA + 1], linesA[indexA + 2], 
+                              linesB[indexB], linesB[indexB + 1], linesB[indexB + 2], intersection)) 
+            {
+                intersections.push_back(intersection);
+            }
+        }
+    }
+    return intersections;
+}
+
+// 计算两条直线的交点
+bool VisionFeatureExtractor::lineIntersect(double A1, double B1, double C1, double A2, double B2, double C2, Point2f& intersection) 
+{
+    double det = A1 * B2 - A2 * B1;
+    if (std::abs(det) < 1e-6) {  // 直线平行
+        return true;
+    }
+    intersection.x = (B1 * C2 - B2 * C1) / det;
+    intersection.y = (A2 * C1 - A1 * C2) / det;
+    return true;
+}
+
+// 计算直线的一般式方程 Ax + By + C = 0
+void VisionFeatureExtractor::lineGeneralForm(Point p1, Point p2, double& A, double& B, double& C) 
+{
+    A = p2.y - p1.y;
+    B = p1.x - p2.x;
+    C = p2.x * p1.y - p1.x * p2.y;
+}
+
+// 单位化
+dai::Point3f VisionFeatureExtractor::unitization(double x, double y, double z)
+{
+    double Sqrt = sqrt(x * x + y * y + z * z);
+    x = x / Sqrt;
+    y = y / Sqrt;
+    z = z / Sqrt;
+    return dai::Point3f(x, y, z);
+}
+
+/*
+接下来优化思路：
+    1. 优化找最短两边算法，目前不准，有透视关系的话不一定哪条边最短。
+    2. 优化找到交点后选择最佳交点的算法。
+    */

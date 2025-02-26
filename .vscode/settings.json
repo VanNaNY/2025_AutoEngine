@@ -67,6 +67,14 @@
         "typeinfo": "cpp",
         "__nullptr": "cpp",
         "__locale": "cpp",
-        "__split_buffer": "cpp"
+        "__split_buffer": "cpp",
+        "__hash_table": "cpp",
+        "__tree": "cpp",
+        "queue": "cpp",
+        "stack": "cpp",
+        "__bit_reference": "cpp",
+        "filesystem": "cpp",
+        "ios": "cpp",
+        "__node_handle": "cpp"
     }
 }

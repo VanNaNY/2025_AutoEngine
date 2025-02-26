@@ -226,21 +226,29 @@ namespace TRoMaC
 //我给下位机发什么东西
 	void Uart::send(const VisionData& data)
 	{
-        TXunion.VisionFrameTX.x = 3.14;//data.x;
-        TXunion.VisionFrameTX.y = 2.54;//data.y;
-        TXunion.VisionFrameTX.z = 1.23;//data.z;
-        TXunion.VisionFrameTX.x_axis_angle = 0.5;//data.x_axis_angle;
-        TXunion.VisionFrameTX.y_axis_angle = 0.5;//data.y_axis_angle;
-        TXunion.VisionFrameTX.z_axis_angle = 1.23;//data.z_axis_angle;
+        TXunion.VisionFrameTX.x = data.x;//data.x;
+        TXunion.VisionFrameTX.y = data.y;//data.y;
+        TXunion.VisionFrameTX.z = data.z;//data.z;
+
+        TXunion.VisionFrameTX.X_x = data.X_x;
+        TXunion.VisionFrameTX.X_y = data.X_y;
+        TXunion.VisionFrameTX.X_z = data.X_z;
+
+        TXunion.VisionFrameTX.Y_x = data.Y_x;
+        TXunion.VisionFrameTX.Y_y = data.Y_y;
+        TXunion.VisionFrameTX.Y_z = data.Y_z;
+
+        TXunion.VisionFrameTX.Z_x = data.Z_x;
+        TXunion.VisionFrameTX.Z_y = data.Z_y;
+        TXunion.VisionFrameTX.Z_z = data.Z_z;
+
+        TXunion.VisionFrameTX.pumpSwitch = 0;
+        /*
         TXunion.VisionFrameTX.a = 0x00;
         TXunion.VisionFrameTX.b = 0x00;
         TXunion.VisionFrameTX.c = 0x80;
         TXunion.VisionFrameTX.d = 0x7f;
-        // TXunion.VisionFrameTX.Robot_x = data.robot_x;
-        // TXunion.VisionFrameTX.Robot_y = data.robot_y;
-        // TXunion.VisionFrameTX.Robot_ID = data.robot_id;
-        // TXunion.VisionFrameTX.IsHeroFlag = data.isheroflag;
-
+        */
 		auto write_stauts = write(serial_id, &TXunion.u8arr[0], SEND_DATA_NUM);
 
         tcflush(serial_id, TCOFLUSH);

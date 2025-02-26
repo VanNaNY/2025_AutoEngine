@@ -17,7 +17,7 @@
 // #define SEND_DATA_NUM (16)
 // #define READ_DATA_NUM (19)
 
-#define SEND_DATA_NUM (28) 
+#define SEND_DATA_NUM (49) 
 #define READ_DATA_NUM (24)
 
 namespace TRoMaC
@@ -30,7 +30,7 @@ namespace TRoMaC
         uint8_t     Exposure;       // 视觉模式
         uint8_t     LossPackage;    // 丢包率   
         uint8_t     Switch;         // 预留调节曝光的一个字节
-        uint8_t     EndFrame;       //帧尾
+        uint8_t     EndFrame;       // 帧尾
     } VisionFrameRX_structTypedef;
     
     /* ==== 云台接收帧结构体&联合体 ==== */
@@ -39,11 +39,22 @@ namespace TRoMaC
     {   
         float       x;              //角点x坐标
         float       y;              //角点y坐标
-        float       z;                //角点z坐标
-        float       x_axis_angle;     //x轴夹角
-        float       y_axis_angle;     //y轴夹角
-        float       z_axis_angle;   //z轴夹角
-        uint8_t     a,b,c,d;
+        float       z;              //角点z坐标
+
+        float       X_x;            //兑换槽水平方向向量x坐标
+        float       X_y;                     
+        float       X_z;
+                 
+        float       Y_x;            //兑换槽竖直方向向量x坐标
+        float       Y_y;
+        float       Y_z;
+
+        float       Z_x;            //垂直兑换槽方向向量x坐标
+        float       Z_y;
+        float       Z_z;           
+
+        uint8_t     pumpSwitch;     //气泵开关
+        //uint8_t     a,b,c,d;
 
     } VisionFrameTX_structTypedef;  
     
@@ -62,13 +73,23 @@ namespace TRoMaC
     //用于保存目标相关角度和距离信息及瞄准情况
 	typedef struct
 	{
-        float		x;
-        float		y;
-        float       z;
-		float 		x_axis_angle; //偏航角
-		float 		y_axis_angle;   //俯仰角
-		float 		z_axis_angle;  //目标距离
-        uint8_t     a,b,c,d;
+        float       x;              //角点x坐标
+        float       y;              //角点y坐标
+        float       z;              //角点z坐标
+
+        float       X_x;            //兑换槽水平方向向量x坐标
+        float       X_y;                     
+        float       X_z;
+                 
+        float       Y_x;            //兑换槽竖直方向向量x坐标
+        float       Y_y;
+        float       Y_z;
+
+        float       Z_x;            //垂直兑换槽方向向量x坐标
+        float       Z_y;
+        float       Z_z;  
+
+        uint8_t     pumpSwitch;     //气泵开关
     } VisionData;
 	
     typedef struct
