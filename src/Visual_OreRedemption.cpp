@@ -22,14 +22,12 @@ int main()
 
     // Define source and output
     auto camRgb = pipeline.create<dai::node::ColorCamera>();
-    auto imageAlign = pipeline.create<dai::node::ImageManip>();
     auto xoutVideo = pipeline.create<dai::node::XLinkOut>();
     auto xoutDepth = pipeline.create<dai::node::XLinkOut>();
     auto tof = pipeline.create<dai::node::ToF>();
     auto xinTofConfig = pipeline.create<dai::node::XLinkIn>();
     auto cam_tof = pipeline.create<dai::node::ColorCamera>();
     auto spatialLocationCalculator = pipeline.create<dai::node::SpatialLocationCalculator>();
-    auto xoutAlignedDepth = pipeline.create<dai::node::XLinkOut>();
     auto xoutSpatialData = pipeline.create<dai::node::XLinkOut>();
     auto xinSpatialCalcConfig = pipeline.create<dai::node::XLinkIn>();
     auto controlIn = pipeline.create<dai::node::XLinkIn>();
@@ -41,7 +39,6 @@ int main()
     xinTofConfig->setStreamName("tofConfig");
     xoutSpatialData->setStreamName("spatialData");
     xinSpatialCalcConfig->setStreamName("spatialCalcConfig");
-    xoutAlignedDepth->setStreamName("alignedDepth");
     
     /*
     if (serial -> Open(1, 115200))
@@ -76,7 +73,6 @@ int main()
     spatialLocationCalculator->inputConfig.setWaitForMessage(false);
     spatialLocationCalculator->inputDepth.setBlocking(false);
     spatialLocationCalculator->inputDepth.setQueueSize(8);
-    imageAlign->setMaxOutputFrameSize(2000000);
 
     // Linking
     controlIn->out.link(camRgb->inputControl);
@@ -86,14 +82,12 @@ int main()
     spatialLocationCalculator->out.link(xoutSpatialData->input);
     xinSpatialCalcConfig->out.link(spatialLocationCalculator->inputConfig);
     tof->depth.link(spatialLocationCalculator->inputDepth);
-    tof->depth.link(imageAlign->inputImage);
-    camRgb->video.link(imageAlign->inputImage);
     // Connect to device and start pipeline 
     dai::Device device(pipeline);
 
     auto controlQueue = device.getInputQueue("control");
     auto video = device.getOutputQueue("video", 8, false);
-    auto qAlignedDepth = device.getOutputQueue("alignedDepth", 8, false);
+    auto depth = device.getOutputQueue("depth", 8, false);
     auto spatialQueue = device.getOutputQueue("spatialData", 8, false);
     auto spatialCalcConfigQueue = device.getInputQueue("spatialCalcConfig");
     
